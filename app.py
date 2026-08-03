@@ -28,24 +28,24 @@ ps = PorterStemmer()
 _stop_words = set(stopwords.words('english'))
 
 
-def transform_text(text):
-    # Null and type safety check
+def preprocess_text(text):
+    # null and type safety check
     if not text or not isinstance(text, str):
         return ""
     
-    # Decode HTML entities and lowercase
+    # decode html entities and lowercase
     text = html.unescape(text).lower()
 
-    # Tokenize
+    # tokenize
     tokens = nltk.word_tokenize(text)
 
-    # Filter alphanumeric tokens
+    # filter alphanumeric tokens
     tokens = [word for word in tokens if word.isalnum()]
 
-    # Remove stopwords and punctuation via list comprehension
+    # remove stopwords and punctuation via list comprehension
     tokens = [word for word in tokens if word not in _stop_words and word not in string.punctuation]
 
-    # Apply Porter stemming
+    # apply porter stemming
     tokens = [ps.stem(word) for word in tokens]
 
     return ' '.join(tokens)
@@ -62,16 +62,13 @@ def extract_signals(raw_text):
         'Digits': digits,
         'Currency symbols': currency,
         'Capitalized words': caps_words,
-        'URLs / links': urls,
+        'URLs': urls,
         'Characters': char_count,
         'Words': word_count,
     }
 
 
-MODEL_REGISTRY = {
-    'Linear SVC': 'linear_svc_model.pkl',
-    'Multinomial Naive Bayes': 'mnb_model.pkl',
-}
+MODEL_REGISTRY = {'Linear SVC': 'linear_svc_model.pkl'}
 
 @st.cache_resource
 def load_assets():
@@ -107,7 +104,7 @@ st.markdown("""
     header[data-testid="stHeader"],
     [data-testid="stHeader"],
     [data-testid="stToolbar"],
-    #MainMenu { display: none !important; visibility: hidden !important; }
+    #mainmenu { display: none !important; visibility: hidden !important; }
 
     .block-container {
         max-width: 1040px;
@@ -340,18 +337,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 METRICS = {
-    'Linear SVC': {'accuracy': '98.0%', 'precision': '95.0%', 'recall': '88.3%', 'f1': '0.915'},
-    'Multinomial Naive Bayes':  {'accuracy': '97.8%', 'precision': '94.9%', 'recall': '86.7%', 'f1': '0.906'},
+    'Linear SVC': {'accuracy': '98.4%', 'precision': '98.3%', 'recall': '88.3%', 'f1': '0.930'},
 }
 
-sel_col, _ = st.columns([1, 2])
-with sel_col:
-    selected_model_name = st.selectbox(
-        "Model",
-        model_names if model_names else ['No models found'],
-        label_visibility="collapsed",
-        help="Switch between trained classifiers",
-    )
+selected_model_name = "Linear SVC"
 
 active_model = models.get(selected_model_name)
 m = METRICS.get(selected_model_name, {})
@@ -414,8 +403,8 @@ with left_col:
     user_input = st.text_area(
         "Message text",
         value=st.session_state["input_text_val"],
-        height=155,
-        placeholder="Paste or type the SMS message to analyse …",
+        height=180,
+        placeholder="Paste or type the SMS message to analyse",
         label_visibility="collapsed",
     )
 
@@ -432,12 +421,22 @@ with left_col:
             st.error("Model assets could not be loaded. Ensure `.pkl` files are present.")
         else:
             with st.spinner("Analysing message…"):
-                transformed = transform_text(user_input)
+                transformed = preprocess_text(user_input)
                 vector_input = tfidf.transform([transformed])
                 prediction = active_model.predict(vector_input)[0]
-                probabilities = active_model.predict_proba(vector_input)[0]
-                spam_pct = float(probabilities[1]) * 100
-                ham_pct  = float(probabilities[0]) * 100
+                # linearsvc doesn't have predict_proba by default.
+                if hasattr(active_model, "predict_proba"):
+                    probabilities = active_model.predict_proba(vector_input)[0]
+                    spam_pct = float(probabilities[1]) * 100
+                    ham_pct  = float(probabilities[0]) * 100
+                else:
+                    # fallback to decision_function and sigmoid
+                    import math
+                    decision = active_model.decision_function(vector_input)[0]
+                    # sigmoid
+                    prob_spam = 1 / (1 + math.exp(-decision))
+                    spam_pct = prob_spam * 100
+                    ham_pct = (1 - prob_spam) * 100
 
             st.markdown("<hr style='border-color:#1e293b; margin:1.2rem 0;'>", unsafe_allow_html=True)
 
